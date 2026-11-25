@@ -11,12 +11,17 @@ Entry (134 chars, one sentence):
 Gate rules enforced here, mirroring the competition gate:
   * UTF-8 text, 1 to 200 characters, not only whitespace.
   * Exactly one line (no newline characters inside the entry).
-  * No control characters.
+  * No control characters — including DEL (0x7F) and non-printable
+    Unicode (categories C*, Zl, Zp), so stray format characters cannot
+    slip past a plain ord() < 0x20 check.
+  * UTF-8 byte length is reported as a sanity check (ASCII entry, so
+    bytes == chars here); the gate itself is character-based.
 Any violation exits 1 and writes nothing.
 """
 
 import os
 import sys
+import unicodedata
 
 ENTRY = (
     "My fridge screams if the door stays open ten seconds, yet it has "
@@ -24,6 +29,17 @@ ENTRY = (
 )
 
 MAX_CHARS = 200
+
+
+def _is_printable(ch: str) -> bool:
+    """True if ch is a printable character.
+
+    Rejects DEL (0x7F), all Unicode control/format/surrogate/private-use
+    categories (C*), and line/paragraph separators (Zl, Zp). Ordinary
+    spaces (Zs) are allowed.
+    """
+    cat = unicodedata.category(ch)
+    return cat[0] != "C" and cat not in ("Zl", "Zp")
 
 
 def validate(entry: str) -> None:
@@ -40,8 +56,13 @@ def validate(entry: str) -> None:
     if "\n" in entry or "\r" in entry:
         print("error: entry must be a single line", file=sys.stderr)
         sys.exit(1)
-    if any(ord(ch) < 0x20 and ch not in ("\t",) for ch in entry):
-        print("error: entry contains a control character", file=sys.stderr)
+    bad = [ch for ch in entry if not _is_printable(ch)]
+    if bad:
+        print(
+            "error: entry contains non-printable character U+%04X"
+            % ord(bad[0]),
+            file=sys.stderr,
+        )
         sys.exit(1)
 
 
@@ -52,7 +73,10 @@ def main() -> int:
     path = os.path.join(out_dir, "entry.txt")
     with open(path, "w", encoding="utf-8", newline="") as f:
         f.write(ENTRY)
-    print("wrote %s (%d chars)" % (path, len(ENTRY)))
+    print(
+        "wrote %s (%d chars, %d UTF-8 bytes)"
+        % (path, len(ENTRY), len(ENTRY.encode("utf-8")))
+    )
     return 0
 
 
